@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Editor - Storage Manager</title>
+    <link rel="stylesheet" href="popup.css">
+    <link rel="stylesheet" href="lib/codemirror/codemirror.css">
+    <link rel="stylesheet" href="lib/codemirror/dracula.css">
+    <script src="lib/codemirror/codemirror.js"></script>
+    <script src="lib/codemirror/javascript.js"></script>
+    <style>
+        body {
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            overflow: hidden;
+            background: var(--bg-main);
+        }
+
+        /* Menu Bar */
+        .menubar {
+            height: 30px;
+            background: var(--bg-secondary);
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            align-items: center;
+            padding: 0 8px;
+            user-select: none;
+        }
+
+        .menu-item {
+            padding: 4px 12px;
+            font-size: 13px;
+            color: var(--text-secondary);
+            cursor: pointer;
+            border-radius: 4px;
+        }
+
+        .menu-item:hover {
+            background: var(--bg-tertiary);
+            color: var(--text-primary);
+        }
+
+        .ctx-item:hover {
+            background: var(--bg-tertiary);
+        }
+
+        .editor-container {
+            flex: 1;
+            position: relative;
+            overflow: hidden;
+            /* Let CodeMirror handle scroll */
+            display: flex;
+            flex-direction: column;
+        }
+
+        .CodeMirror {
+            height: 100% !important;
+            font-family: 'Fira Code', monospace;
+            font-size: 14px;
+        }
+
+        .status-bar {
+            height: 24px;
+            background: var(--bg-primary);
+            border-top: 1px solid var(--border-color);
+            display: flex;
+            align-items: center;
+            padding: 0 12px;
+            font-size: 11px;
+            color: var(--text-secondary);
+            justify-content: space-between;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="menubar">
+        <div class="menu-item" id="menu-save">Save (Ctrl+S)</div>
+        <div class="menu-item" id="menu-format">Pretty Print</div>
+        <div class="menu-item" id="menu-load">Load File... (Ctrl+O)</div>
+        <div class="menu-item" id="menu-export">Export...</div>
+    </div>
+
+    <div class="editor-container" id="editor-mount"></div>
+
+    <div class="status-bar">
+        <span id="status-msg">Ready</span>
+        <span id="lang-mode">JavaScript</span>
+    </div>
+
+    <!-- Custom Find Bar -->
+    <div id="find-bar"
+        style="display: none; position: absolute; top: 30px; right: 20px; background: var(--bg-secondary); border: 1px solid var(--border-color); padding: 4px; box-shadow: 0 4px 6px rgba(0,0,0,0.3); border-radius: 4px; z-index: 100; align-items: center; gap: 4px;">
+        <input type="text" id="find-input" placeholder="Find..."
+            style="background: var(--bg-tertiary); border: 1px solid var(--border-color); color: var(--text-primary); padding: 4px 8px; border-radius: 2px; outline: none; font-size: 12px; width: 150px;">
+
+        <!-- Case Sensitivity Toggle -->
+        <button id="find-case" title="Match Case"
+            style="cursor: pointer; background: transparent; border: 1px solid transparent; color: var(--text-secondary); font-size: 11px; padding: 2px 4px; border-radius: 2px;">Aa</button>
+
+        <button id="find-prev"
+            style="cursor: pointer; background: transparent; border: none; color: var(--text-primary);">↑</button>
+        <button id="find-next"
+            style="cursor: pointer; background: transparent; border: none; color: var(--text-primary);">↓</button>
+        <span id="find-count"
+            style="font-size: 10px; color: var(--text-secondary); min-width: 40px; text-align: center;"></span>
+        <button id="find-close"
+            style="cursor: pointer; background: transparent; border: none; color: var(--text-secondary); margin-left: 4px;">✕</button>
+    </div>
+
+    <!-- Custom Context Menu -->
+    <div id="context-menu"
+        style="display: none; position: absolute; background: var(--bg-secondary); border: 1px solid var(--border-color); box-shadow: 0 2px 10px rgba(0,0,0,0.3); z-index: 2000; min-width: 150px; padding: 4px 0; border-radius: 4px;">
+        <div class="ctx-item" id="ctx-select-all"
+            style="padding: 6px 12px; font-size: 13px; color: var(--text-primary); cursor: pointer; display: flex; align-items: center; justify-content: space-between;">
+            <span>Select All Occurrences</span>
+            <span style="font-size: 11px; color: var(--text-secondary); margin-left: 10px;">Ctrl+Shift+L</span>
+        </div>
+    </div>
+
+    <div id="image-modal"
+        style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); z-index: 1000; justify-content: center; align-items: center; flex-direction: column;">
+        <div style="position: relative; max-width: 90%; max-height: 90%;">
+            <img id="preview-image" src=""
+                style="max-width: 100%; max-height: 80vh; border: 1px solid white; box-shadow: 0 0 20px rgba(0,0,0,0.5);">
+            <button id="close-modal"
+                style="position: absolute; top: -30px; right: 0; color: white; background: none; border: none; font-size: 20px; cursor: pointer;">✕
+                Close</button>
+        </div>
+    </div>
+
+    <script type="module" src="editor.js"></script>
+</body>
+
+</html>

@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Storage Manager</title>
+    <link rel="stylesheet" href="popup.css">
+    <link rel="stylesheet" href="popup.css">
+    <link rel="stylesheet" href="components/DataGrid.css">
+    <link rel="stylesheet" href="components/CodeEditor.css">
+    <link rel="stylesheet" href="lib/codemirror/codemirror.css">
+    <link rel="stylesheet" href="lib/codemirror/dracula.css">
+    <script src="lib/codemirror/codemirror.js"></script>
+    <script src="lib/codemirror/javascript.js"></script>
+    <!-- Image Preview Modal -->
+    <div id="image-modal"
+        style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); z-index: 1000; justify-content: center; align-items: center; flex-direction: column;">
+        <div style="position: relative; max-width: 90%; max-height: 90%;">
+            <img id="preview-image" src=""
+                style="max-width: 100%; max-height: 80vh; border: 1px solid white; box-shadow: 0 0 20px rgba(0,0,0,0.5);">
+            <button id="close-modal"
+                style="position: absolute; top: -30px; right: 0; color: white; background: none; border: none; font-size: 20px; cursor: pointer;">✕
+                Close</button>
+        </div>
+        <div id="preview-info" style="color: #aaa; margin-top: 10px; font-family: monospace;"></div>
+    </div>
+
+    <script src="lib/lz-string.js"></script>
+</head>
+
+<body>
+    <div class="app-container">
+        <aside class="sidebar">
+            <div class="brand">
+                <span>Storage Manager</span>
+            </div>
+            <nav class="nav-menu">
+                <div class="nav-item active" data-target="cookies">
+                    <span>Cookies</span>
+                </div>
+                <div class="nav-item" data-target="local-storage">
+                    <span>Local Storage</span>
+                </div>
+                <div class="nav-item" data-target="session-storage">
+                    <span>Session Storage</span>
+                </div>
+                <div class="nav-item" data-target="indexed-db">
+                    <span>IndexedDB</span>
+                </div>
+                <div class="nav-item" data-target="cache">
+                    <span>Cache Storage</span>
+                </div>
+                <div class="nav-item" data-target="deep-storage">
+                    <span>Deep Storage (CDP)</span>
+                </div>
+                <div class="nav-item" data-target="page-vars">
+                    <span>Page Variables</span>
+                </div>
+            </nav>
+        </aside>
+
+        <main class="main-content">
+            <header class="header">
+                <h2 class="page-title" id="current-view-title">Cookies</h2>
+                <div class="actions">
+                    <!-- Toolkit actions will go here -->
+                </div>
+            </header>
+            <div class="content-area" id="content-mount">
+                <!-- Content will be injected here -->
+                <div class="empty-state">
+                    <p>Select a storage type to view contents</p>
+                </div>
+            </div>
+        </main>
+    </div>
+    <script src="popup.js" type="module"></script>
+</body>
+
+</html>

@@ -1,0 +1,49 @@
+{
+  "manifest_version": 3,
+  "name": "Chrome Storage Manager",
+  "version": "1.0.0",
+  "description": "A premium file-manager for your browser storage.",
+  "permissions": [
+    "cookies",
+    "scripting",
+    "activeTab",
+    "storage",
+    "debugger"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "action": {
+    "default_title": "Open Storage Manager",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "popup/components/*.css",
+        "popup/components/*.js",
+        "popup/modules/*.js",
+        "popup/lib/codemirror/*.css",
+        "popup/lib/codemirror/*.js",
+        "popup/popup.css",
+        "content/overlay.css",
+        "content/overlay-app.js"
+      ],
+      "matches": [
+        "<all_urls>"
+      ]
+    }
+  ]
+}

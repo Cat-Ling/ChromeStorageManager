@@ -1,0 +1,127 @@
+/* Overlay Window */
+:host {
+    /* Colors - Zinc/Slate Palette */
+    --bg-main: #09090b;
+    --bg-secondary: #18181b;
+    --bg-tertiary: #27272a;
+
+    --border-color: #3f3f46;
+
+    --text-primary: #f4f4f5;
+    --text-secondary: #a1a1aa;
+
+    /* Accents - Violet/Indigo */
+    --accent-primary: #8b5cf6;
+    --accent-hover: #7c3aed;
+    --accent-dim: rgba(139, 92, 246, 0.1);
+
+    --danger: #ef4444;
+    --success: #10b981;
+
+    /* Spacing */
+    --spacing-xs: 4px;
+    --spacing-sm: 8px;
+    --spacing-md: 16px;
+    --spacing-lg: 24px;
+}
+
+.overlay-window {
+    position: fixed;
+    top: 50px;
+    left: 50px;
+    width: 900px;
+    height: 600px;
+    background-color: rgba(9, 9, 11, 0.95);
+    /* Slight transparency */
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    color: var(--text-primary);
+    display: flex;
+    flex-direction: column;
+    border-radius: 8px;
+    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+    border: 1px solid var(--border-color, #3f3f46);
+    font-family: 'Inter', system-ui, sans-serif;
+    overflow: hidden;
+    transition: width 0.3s, height 0.3s, border-radius 0.3s;
+}
+
+.overlay-window.minimized {
+    width: 240px;
+    height: 48px;
+    border-radius: 24px;
+}
+
+.overlay-window.maximized {
+    width: 100vw;
+    height: 100vh;
+    top: 0 !important;
+    left: 0 !important;
+    border-radius: 0;
+}
+
+/* Header */
+.window-header {
+    height: 40px;
+    background-color: var(--bg-tertiary, #27272a);
+    border-bottom: 1px solid var(--border-color, #3f3f46);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 16px;
+    cursor: grab;
+    user-select: none;
+}
+
+.window-header:active {
+    cursor: grabbing;
+}
+
+.brand {
+    font-weight: 600;
+    font-size: 14px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.window-controls {
+    display: flex;
+    gap: 8px;
+}
+
+.win-btn {
+    background: none;
+    border: none;
+    color: var(--text-secondary, #a1a1aa);
+    cursor: pointer;
+    padding: 4px;
+    border-radius: 4px;
+}
+
+.win-btn:hover {
+    background-color: rgba(255, 255, 255, 0.1);
+    color: white;
+}
+
+.win-btn.close:hover {
+    background-color: #ef4444;
+}
+
+/* Minimized State */
+.overlay-window.minimized .app-body {
+    display: none;
+}
+
+.app-body {
+    flex: 1;
+    overflow: hidden;
+    position: relative;
+}
+
+/* Ensure common types work */
+.app-container {
+    display: grid;
+    grid-template-columns: 240px 1fr;
+    height: 100%;
+}
