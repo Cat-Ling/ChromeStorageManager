@@ -44,4 +44,32 @@ export class IndexedDBManager {
             });
         });
     }
+
+    async putItem(dbName, storeName, key, value) {
+        return new Promise((resolve, reject) => {
+            chrome.tabs.sendMessage(this.tabId, {
+                type: 'putIndexedDBItem',
+                dbName,
+                storeName,
+                key,
+                value
+            }, (response) => {
+                if (response && response.error) reject(new Error(response.error));
+                else resolve(response);
+            });
+        });
+    }
+
+    async createStore(dbName, storeName) {
+        return new Promise((resolve, reject) => {
+            chrome.tabs.sendMessage(this.tabId, {
+                type: 'createIndexedDBStore',
+                dbName,
+                storeName
+            }, (response) => {
+                if (response && response.error) reject(new Error(response.error));
+                else resolve(response);
+            });
+        });
+    }
 }

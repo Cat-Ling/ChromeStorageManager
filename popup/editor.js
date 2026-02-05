@@ -5,6 +5,9 @@
 let cmInstance = null;
 let parentTabId = null;
 let returnId = null; // ID to match the save callback
+let originalContent = null; // Raw encoded content
+let decodedContent = null; // The pretty/decoded content
+let isViewOriginal = false;
 
 document.addEventListener('DOMContentLoaded', async () => {
     // 1. Parse URL params
@@ -22,7 +25,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     // 2. Init CodeMirror
     const mount = document.getElementById('editor-mount');
     cmInstance = CodeMirror(mount, {
-        value: "// Loading content...",
+        value: "",
         mode: initialLang === 'json' ? { name: "javascript", json: true } : "javascript",
         theme: "dracula",
         lineNumbers: true,
@@ -35,14 +38,53 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // 3. Request Content from Parent
     if (parentTabId) {
+        // Show a "Waiting for parent..." status or overlay
+        const overlay = showLoadingOverlay("Initializing Editor...");
+
         try {
-            chrome.tabs.sendMessage(parentTabId, { type: 'EDITOR_READY', returnId }, (response) => {
-                if (response && response.content) {
-                    cmInstance.setValue(response.content);
+            chrome.tabs.sendMessage(parentTabId, { type: 'EDITOR_READY', returnId }, async (response) => {
+                if (response && response.content !== undefined) {
+                    let content = response.content;
+
+                    // Handle Blob URLs
+                    if (content && typeof content === 'object' && content.isBlob) {
+                        try {
+                            const res = await fetch(content.url);
+                            content = await res.text();
+                        } catch (e) {
+                            console.error('Failed to fetch blob content:', e);
+                            content = "Error: Failed to load large content blob.";
+                        }
+                    }
+
+                    if (typeof content !== 'string') {
+                        content = JSON.stringify(content, null, 2);
+                    }
+
+                    decodedContent = content; // Default start is decoded
+
+                    // Optimization for Large Files (> 200KB)
+                    if (content.length > 200000) {
+                        loadContentChunked(content, overlay);
+                    } else {
+                        cmInstance.setValue(content);
+                        cmInstance.clearHistory();
+                        if (overlay && overlay.parentNode) overlay.parentNode.removeChild(overlay);
+                    }
+
+                    // Handle Original Content
+                    if (response.originalContent !== undefined && response.originalContent !== null && response.originalContent !== content) {
+                        originalContent = response.originalContent;
+                        setupOriginalToggle();
+                    }
+                } else {
+                    if (overlay && overlay.parentNode) overlay.parentNode.removeChild(overlay);
+                    setStatus('Error: Could not retrieve content');
                 }
             });
         } catch (e) {
             console.error('Failed to contact parent:', e);
+            if (overlay && overlay.parentNode) overlay.parentNode.removeChild(overlay);
         }
     }
 
@@ -52,7 +94,118 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // 5. Auto-scan for images
     setupImageScanning();
+    setupLinkHandling();
 });
+
+// --- Dynamic Chunked Loading ---
+function showLoadingOverlay(title = "Loading...") {
+    const overlay = document.createElement('div');
+    overlay.id = 'loading-overlay';
+    overlay.style.cssText = `
+        position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+        background: rgba(0,0,0,0.8); z-index: 3000;
+        display: flex; flex-direction: column; align-items: center; justify-content: center;
+        color: white; font-family: sans-serif;
+    `;
+    overlay.innerHTML = `
+        <div id="loader-title" style="font-size: 1.2em; margin-bottom: 10px;">${title}</div>
+        <div style="width: 300px; height: 10px; background: #333; border-radius: 5px; overflow: hidden;">
+            <div id="loader-bar" style="width: 0%; height: 100%; background: var(--accent-primary, #0af); transition: width 0.1s;"></div>
+        </div>
+        <div id="loader-pct" style="margin-top: 5px; font-size: 0.9em; opacity: 0.8;">0%</div>
+    `;
+    document.body.appendChild(overlay);
+    return overlay;
+}
+
+function loadContentChunked(content, existingOverlay = null) {
+    const overlay = existingOverlay || showLoadingOverlay("Loading Large File...");
+    const titleEl = document.getElementById('loader-title');
+    if (titleEl) titleEl.textContent = "Loading Content...";
+
+    cmInstance.setValue(""); // Clear first
+    const chunkSize = 256 * 1024; // 256KB chunks
+    let offset = 0;
+    const total = content.length;
+    const bar = document.getElementById('loader-bar');
+    const pct = document.getElementById('loader-pct');
+
+    function processChunk() {
+        if (offset < total) {
+            const end = Math.min(offset + chunkSize, total);
+            const chunk = content.substring(offset, end);
+
+            // Append to end of doc
+            cmInstance.replaceRange(chunk, { line: cmInstance.lastLine(), ch: 100000000 });
+
+            offset = end;
+
+            const progress = Math.round((offset / total) * 100);
+            if (bar) bar.style.width = `${progress}%`;
+            if (pct) pct.textContent = `${progress}%`;
+
+            // Request next chunk immediately if not finished
+            requestAnimationFrame(processChunk);
+        } else {
+            // Done
+            if (overlay && overlay.parentNode) overlay.parentNode.removeChild(overlay);
+            setStatus(`Loaded ${Math.round(total / 1024)}KB`);
+            cmInstance.clearHistory();
+        }
+    }
+
+    processChunk();
+}
+
+function setupOriginalToggle() {
+    const menuBar = document.querySelector('.menubar');
+    const btn = document.createElement('div');
+    btn.className = 'menu-item';
+    btn.style.marginLeft = 'auto'; // push to right
+    btn.style.marginRight = '8px';
+    btn.title = 'Switch between Decoded view and Original Raw value';
+
+    // Initial State
+    btn.innerHTML = `<span style="opacity: 0.7;">View: </span><span id="view-mode-label" style="font-weight:600; color:var(--accent-primary);">Decoded</span>`;
+
+    menuBar.appendChild(btn);
+
+    btn.id = 'view-toggle-btn';
+    btn.onclick = toggleViewMode;
+}
+
+function toggleViewMode() {
+    const btnLabel = document.getElementById('view-mode-label');
+
+    if (isViewOriginal) {
+        // Switch to Decoded
+        originalContent = cmInstance.getValue(); // Update ref (though user knows editing raw might break decoding)
+
+        // Check size again?
+        if (decodedContent.length > 500000) {
+            loadContentChunked(decodedContent);
+        } else {
+            cmInstance.setValue(decodedContent);
+        }
+
+        btnLabel.textContent = 'Decoded';
+        setStatus('Switched to Decoded View');
+        isViewOriginal = false;
+    } else {
+        // Switch to Original
+        decodedContent = cmInstance.getValue(); // Save edits to decoded buffer
+
+        if (originalContent.length > 500000) {
+            loadContentChunked(originalContent);
+        } else {
+            cmInstance.setValue(originalContent);
+        }
+
+        btnLabel.textContent = 'Original (Raw)';
+        setStatus('Switched to Raw View');
+        isViewOriginal = true;
+    }
+}
 
 function debounce(func, wait) {
     let timeout;
@@ -78,12 +231,6 @@ function setupImageScanning() {
 
     // On change, we might need to re-scan modified lines
     cmInstance.on('change', (cm, changeObj) => {
-        // If content changes, clear scanned cache for those lines? 
-        // Or just clear everything if it's a big change?
-        // For simplicity, specific line invalidation is complex. 
-        // Let's just clear cache if it's a significant change or just rely on viewport scan.
-        // Actually, easiest is to remove modified lines from `scannedLines`.
-
         const fromLine = changeObj.from.line;
         const toLine = changeObj.to.line;
         // Invalidate scanned status for touched lines
@@ -92,8 +239,6 @@ function setupImageScanning() {
         }
 
         // Trigger a scan of the current viewport shortly after
-        // (Debounced handled by the event loop usually, but explicit debounce is good)
-        // We'll call scanViewportImages for the CURRENT viewport
         const vp = cmInstance.getViewport();
         scanViewportImages(vp.from, vp.to);
     });
@@ -125,7 +270,6 @@ function scanViewportImages(from, to) {
         }
 
         // Regex for header: quote + data:image/...;base64,
-        // Reset regex state just in case, though we create new one or use exec correctly
         const headerRegex = /(['"])data:image\/[a-zA-Z0-9.\-+]+;base64,/g;
 
         let match;
@@ -139,13 +283,7 @@ function scanViewportImages(from, to) {
             const endCh = lineText.indexOf(quote, payloadStartCh);
             if (endCh === -1) continue;
 
-            // Range checks
             if (payloadStartCh >= endCh) continue;
-
-            // Check if this range is already marked?
-            // cm.findMarksAt({line: i, ch: payloadStartCh}) 
-            // optimization: we just blindly mark, simpler for now, CodeMirror handles overlaps mostly ok 
-            // or we check scannedLines.
 
             const fromPos = { line: i, ch: payloadStartCh };
             const toPos = { line: i, ch: endCh };
@@ -155,17 +293,7 @@ function scanViewportImages(from, to) {
             const alreadyMarked = existingMarks.some(m => m.className === 'image-preview-mark');
             if (alreadyMarked) continue;
 
-            // Full src for preview. CAREFUL with memory on massive strings.
-            // But we need it for the click handler.
-            // Maybe we extract it only ON CLICK?
-            // Optimization: Don't store `src` in closure if possible?
-            // Actually, for user experience, `src` is needed. 
-            // But if line is 10MB, this substring is 10MB.
-            // If we have 100 images, that's 1GB RAM.
-            // Better: Store the coordinates and extract on click.
-
             createImageMark(fromPos, toPos);
-
             imageRanges.push({ from: fromPos, to: toPos });
         }
         scannedLines.add(i);
@@ -174,7 +302,7 @@ function scanViewportImages(from, to) {
 
 function createImageMark(from, to) {
     const btn = document.createElement('span');
-    btn.textContent = ' 📷 [Image Content] ';
+    btn.textContent = ' [IMAGE PREVIEW] ';
     btn.className = 'cm-image-widget';
     btn.style.backgroundColor = 'var(--accent-color, #007bff)';
     btn.style.color = '#fff';
@@ -188,32 +316,8 @@ function createImageMark(from, to) {
 
     btn.onclick = (e) => {
         e.stopPropagation();
-        // Extract src on demand to save memory
         const doc = cmInstance.getDoc();
-        // The header is BEFORE `from`. We need to visually exclude quotes.
-        // `from` is start of payload. `to` is end of payload.
-        // We need the full data URI? Usually "data:..." is needed.
-        // The header is roughly `data:image...base64,` which is just before `from`.
-        // We can just grab the line text again or range.
-
-        // Wait, the previous logic extracted `startIdx + 1` to `endIdx`.
-        // That included "data:image...".
-        // Here `from` is AFTER header.
-        // We need to seek back to find the "data:..." start? 
-        // Or just grab the whole thing including header?
-
-        // Let's grab the range surrounding it.
-        // We know it's on `from.line`.
         const lineText = doc.getLine(from.line);
-        // Find the start of the string (quote) before `from.ch`
-        // This is a bit disjointed. 
-        // Optimization: Let's just grab the whole line substring?
-
-        // Re-find the match quickly?
-        // Or just store the header length?
-        // Let's store the header length in the button dataset?
-        // Or just simplistic search backwards for "data:"?
-
         const textUpToPayload = lineText.substring(0, from.ch);
         const headerStart = textUpToPayload.lastIndexOf('data:image');
         if (headerStart !== -1) {
@@ -277,8 +381,6 @@ function setupContextMenu() {
         e.preventDefault();
 
         // Only show if text is selected? Or allow selecting word under cursor?
-        // VSCode style: if selection exists, use it. If not, maybe select word?
-        // For now: require selection or select word under cursor
         if (!cmInstance.somethingSelected()) {
             const cursor = cmInstance.getCursor();
             const word = cmInstance.findWordAt(cursor);
@@ -310,18 +412,9 @@ function selectAllInstances() {
     const query = cmInstance.getSelection();
     if (!query) return;
 
-    // Use current search state case sensitivity? Or default?
-    // VSCode "Select All Occurrences" usually respects the Find widget settings if open,
-    // or defaults to Case Sensitive usually (actually it depends). 
-    // Let's use the toggle state if Find is open, else Case Sensitive? 
-    // The user asked "make search case insensitive by default... select all instances ... like vscode".
-    // VSCode's Ctrl+Shift+L is case sensitive by default unless Find Widget overrides.
-    // Let's stick to the explicit toggle in our Find bar.
-
     const matches = findAllMatches(query, searchState.caseSensitive);
     if (matches.length === 0) return;
 
-    // Convert to CM ranges {anchor, head}
     const ranges = matches.map(m => ({
         anchor: { line: m.line, ch: m.ch },
         head: { line: m.line, ch: m.endCh }
@@ -334,19 +427,29 @@ function selectAllInstances() {
 async function saveToParent() {
     if (!parentTabId) return;
 
+    // Use content from current view
     const content = cmInstance.getValue();
     setStatus('Saving...');
+
+    // Update our internal refs
+    if (isViewOriginal) {
+        originalContent = content;
+    } else {
+        decodedContent = content;
+    }
 
     chrome.tabs.sendMessage(parentTabId, {
         type: 'EDITOR_SAVE',
         returnId,
-        content
+        content,
+        isRaw: isViewOriginal // Flag to tell parent whether to encode or not
     }, (response) => {
         if (response && response.success) {
             setStatus('Saved!');
-            setTimeout(() => setStatus('Ready'), 2000);
-            // Optional: Close window? User might want to keep editing.
-            // window.close();
+            setTimeout(() => {
+                if (isViewOriginal) setStatus('Switched to Raw View');
+                else setStatus('Switched to Decoded View');
+            }, 2000);
         } else {
             setStatus('Error saving');
         }
@@ -361,7 +464,6 @@ async function loadFromFile() {
         cmInstance.setValue(text);
         setStatus(`Loaded: ${file.name}`);
     } catch (e) {
-        // User cancelled or error
         console.log(e);
     }
 }
@@ -413,28 +515,14 @@ async function prettyPrint() {
         }
     } catch (e) { }
 
-    // 3. Simple JS/CSS generic formatter fallback
-    // Very basic: indent on { [ ( and newline on ;
-    // This is better than one long line
+    // 3. Simple generic format
     try {
         let formatted = content
             .replace(/{/g, '{\n')
             .replace(/}/g, '\n}')
             .replace(/;/g, ';\n')
             .replace(/,/g, ',\n');
-
-        // Simple heuristic to fix indentation? 
-        // Using CodeMirror's autoFormatRange if available? 
-        // Note: autoFormatRange is an addon, we probably don't have it loaded.
-        // We will just set the new values and let the user rely on editor's existing indent capability
-
-        // Actually, just breaking lines is better than nothing for minified code.
         cmInstance.setValue(formatted);
-
-        // Select all and auto-indent logic if native CM supports it easily?
-        // cmInstance.execCommand('selectAll');
-        // cmInstance.indentSelection('smart'); // might not be exact method name
-
         setStatus('Simple formatting applied');
     } catch (e) {
         setStatus('Formatting failed');
@@ -531,13 +619,11 @@ function findAllMatches(query, caseSensitive) {
 
 function performFind() {
     const query = document.getElementById('find-input').value;
-
     const results = findAllMatches(query, searchState.caseSensitive);
-
     searchState = { ...searchState, query, results, currentIndex: -1 };
 
     if (results.length > 0) {
-        findNext(); // Go to first
+        findNext();
     } else {
         document.getElementById('find-count').textContent = '0/0';
     }
@@ -545,23 +631,19 @@ function performFind() {
 
 function findNext() {
     if (searchState.results.length === 0) return;
-
     searchState.currentIndex++;
     if (searchState.currentIndex >= searchState.results.length) {
         searchState.currentIndex = 0; // wrap
     }
-
     highlightResult(searchState.currentIndex);
 }
 
 function findPrev() {
     if (searchState.results.length === 0) return;
-
     searchState.currentIndex--;
     if (searchState.currentIndex < 0) {
         searchState.currentIndex = searchState.results.length - 1; // wrap
     }
-
     highlightResult(searchState.currentIndex);
 }
 
@@ -607,4 +689,88 @@ function setupFindEvents() {
 
 function setStatus(msg) {
     document.getElementById('status-msg').textContent = msg;
+}
+
+function setupLinkHandling() {
+    const wrapper = cmInstance.getWrapperElement();
+
+    // Create Tooltip
+    const tooltip = document.createElement('div');
+    tooltip.className = 'link-tooltip';
+    tooltip.style.cssText = `
+        position: fixed; 
+        background: var(--bg-secondary); 
+        color: var(--text-primary); 
+        padding: 4px 8px; 
+        font-size: 11px; 
+        border-radius: 4px; 
+        pointer-events: none; 
+        display: none; 
+        z-index: 2000;
+        border: 1px solid var(--accent-primary);
+        box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+    `;
+    tooltip.textContent = 'Ctrl + Click to open';
+    document.body.appendChild(tooltip);
+
+    // Mouse Move - Hint
+    wrapper.addEventListener('mousemove', (e) => {
+        const coords = { left: e.clientX, top: e.clientY };
+        const pos = cmInstance.coordsChar(coords);
+        const token = cmInstance.getTokenAt(pos);
+
+        if (token && isUrl(token.string)) {
+            // Show hint
+            tooltip.style.display = 'block';
+            tooltip.style.left = (e.clientX + 12) + 'px';
+            tooltip.style.top = (e.clientY + 12) + 'px';
+
+            // If Ctrl is held, show pointer
+            if (e.ctrlKey || e.metaKey) {
+                wrapper.style.cursor = 'pointer';
+                tooltip.style.fontWeight = 'bold';
+            } else {
+                wrapper.style.cursor = 'text'; // or default
+                tooltip.style.fontWeight = 'normal';
+            }
+        } else {
+            tooltip.style.display = 'none';
+            wrapper.style.cursor = '';
+        }
+    });
+
+    // Keydown/up to update cursor if hovering
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Control' || e.key === 'Meta') {
+            if (tooltip.style.display === 'block') wrapper.style.cursor = 'pointer';
+        }
+    });
+    document.addEventListener('keyup', (e) => {
+        if (e.key === 'Control' || e.key === 'Meta') {
+            if (tooltip.style.display === 'block') wrapper.style.cursor = 'text';
+        }
+    });
+
+    // Click - Open
+    wrapper.addEventListener('click', (e) => {
+        if (!e.ctrlKey && !e.metaKey) return;
+
+        const pos = cmInstance.coordsChar({ left: e.clientX, top: e.clientY });
+        const token = cmInstance.getTokenAt(pos);
+        if (token && isUrl(token.string)) {
+            let url = token.string;
+            // Clean quotes
+            url = url.replace(/['"]/g, '');
+            // Handle incomplete URLs if tokenizer split them? 
+            // Usually strings are whole.
+            window.open(url, '_blank');
+        }
+    });
+}
+
+function isUrl(str) {
+    if (!str) return false;
+    // Simple check: contains http/https and looks somewhat valid
+    const clean = str.replace(/['"]/g, '');
+    return /^https?:\/\/[^\s]+$/.test(clean);
 }

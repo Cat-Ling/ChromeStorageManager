@@ -10,7 +10,10 @@ export class CodeEditor {
             if (request.type === 'EDITOR_SAVE' && this.activeEdits.has(request.returnId)) {
 
                 const callback = this.activeEdits.get(request.returnId);
-                callback(request.content);
+                // We now support (content, isRaw) signature
+                // But old callbacks might expect just (content).
+                // JS ignores extra args, so passing (content, request.isRaw) is safe.
+                callback(request.content, request.isRaw);
 
                 sendResponse({ success: true });
                 // We keep the callback in the map so they can save multiple times
@@ -18,20 +21,8 @@ export class CodeEditor {
         });
     }
 
-    async open(content, language = 'javascript', onSave, uniqueKey = null) {
-        // If a uniqueKey is provided, check if we already have a window for it
-        if (uniqueKey && this.activeEdits.has(uniqueKey)) {
-            const existingCallback = this.activeEdits.get(uniqueKey);
-            // If we have a window ID stored (we need to track it separately or augment the map)
-            // Actually, let's change the map structure or add a secondary map.
-            // For simplicity, let's assume we can focus if we find it.
-        }
-
-        // Better approach:
-        // Maintains a map of uniqueKey -> { windowId, returnId }
-        // If uniqueKey exists, try to focus that window.
-        // If focusing fails (window closed), remove from map and proceed.
-
+    async open(content, language = 'javascript', onSave, uniqueKey = null, originalContent = null) {
+        // Option to reuse window if uniqueKey provided
         if (uniqueKey) {
             if (!this.windowMap) this.windowMap = new Map();
 
@@ -54,25 +45,50 @@ export class CodeEditor {
 
         // Get current window tab ID to pass as parentTabId
         let myTabId = null;
-        const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-        if (tab) myTabId = tab.id;
+        try {
+            const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+            if (tab) myTabId = tab.id;
+        } catch (e) { }
 
         if (!myTabId) {
             console.error('Could not determine my own tab ID');
-            return;
+            // Can't proceed without parent ID for messaging in some contexts, but let's try
         }
 
         // Prepare content transfer
+        let blobUrl = null;
+        let contentToPass = content;
+        let originalToPass = originalContent;
+
+        // Optimization: Use Blob URL for very large content to avoid IPC overhead
+        if (typeof content === 'string' && content.length > 1024 * 512) {
+            const blob = new Blob([content], { type: 'text/plain' });
+            blobUrl = URL.createObjectURL(blob);
+            contentToPass = { isBlob: true, url: blobUrl };
+        }
+
         chrome.runtime.onMessage.addListener(function handShake(request, sender, sendResponse) {
             if (request.type === 'EDITOR_READY' && request.returnId === returnId) {
-                sendResponse({ content: content });
+                // Pass both decoded content and original (raw) content
+                sendResponse({
+                    content: contentToPass,
+                    originalContent: originalToPass
+                });
+
+                // Cleanup Blob URL after some time to ensure it's fetched
+                if (blobUrl) {
+                    setTimeout(() => URL.revokeObjectURL(blobUrl), 10000);
+                }
+
                 chrome.runtime.onMessage.removeListener(handShake);
             }
         });
 
         // Open the window
+        // Ensure language is safe for URL
+        const safeLang = encodeURIComponent(language);
         const win = await chrome.windows.create({
-            url: `popup/editor.html?parentTabId=${myTabId}&returnId=${returnId}&lang=${language}`,
+            url: `popup/editor.html?parentTabId=${myTabId || ''}&returnId=${returnId}&lang=${safeLang}`,
             type: 'popup',
             width: 800,
             height: 600,

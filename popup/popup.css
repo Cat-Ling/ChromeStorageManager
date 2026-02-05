@@ -1,26 +1,21 @@
 :root {
-  /* Colors - Chrome Dark Palette */
+  /* Default Dark - Chrome Palette */
   --bg-main: #202124;
-  /* Chrome Default Dark Background */
   --bg-secondary: #292a2d;
-  /* Chrome Surface/Sidebar */
   --bg-tertiary: #35363a;
-  /* Hover states */
-
   --border-color: #5f6368;
-  /* Chrome Borders */
-
   --text-primary: #e8eaed;
-  /* Chrome Primary Text */
   --text-secondary: #9aa0a6;
-  /* Chrome Secondary Text */
+  --border-subtle: rgba(255, 255, 255, 0.05);
+  --hover-bg: rgba(255, 255, 255, 0.03);
 
-  /* Accents - Chrome Blue */
-  --accent-primary: #8ab4f8;
-  /* Chrome Dark Mode Blue */
-  --accent-hover: #aecbfa;
-  --accent-dim: rgba(138, 180, 248, 0.1);
-  --accent-dim: rgba(139, 92, 246, 0.1);
+  /* Accent - Follow Browser/OS Theme */
+  --accent-primary: AccentColor;
+  --accent-fallback: #8ab4f8;
+  /* Chrome Blue */
+  --accent-hover: color-mix(in srgb, var(--accent-primary), white 20%);
+  --accent-dim: color-mix(in srgb, var(--accent-primary), transparent 90%);
+  --accent-text: AccentColorText;
 
   --danger: #ef4444;
   --success: #10b981;
@@ -30,6 +25,30 @@
   --spacing-sm: 8px;
   --spacing-md: 16px;
   --spacing-lg: 24px;
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg-main: #ffffff;
+    --bg-secondary: #f1f3f4;
+    --bg-tertiary: #e8eaed;
+    --border-color: #dadce0;
+    --text-primary: #202124;
+    --text-secondary: #5f6368;
+    --border-subtle: rgba(0, 0, 0, 0.05);
+    --hover-bg: rgba(0, 0, 0, 0.03);
+
+    /* Light mode specific dimming */
+    --accent-dim: color-mix(in srgb, var(--accent-primary), transparent 85%);
+  }
+}
+
+/* Ensure AccentColor works with fallbacks if browser doesn't support it well */
+@supports not (color: AccentColor) {
+  :root {
+    --accent-primary: var(--accent-fallback);
+    --accent-text: #000;
+  }
 }
 
 * {
@@ -92,7 +111,7 @@ body {
 }
 
 .nav-item:hover {
-  background-color: var(--bg-tertiary);
+  background-color: var(--hover-bg);
   color: var(--text-primary);
 }
 
@@ -106,6 +125,8 @@ body {
   display: flex;
   flex-direction: column;
   height: 100%;
+  min-width: 0;
+  min-height: 0;
 }
 
 .header {
@@ -124,7 +145,9 @@ body {
 
 .content-area {
   flex: 1;
-  overflow: hidden;
+  overflow: auto;
+  min-height: 0;
+  /* Critical for scrolling inside flex container */
   position: relative;
   background-color: var(--bg-main);
 }
@@ -178,7 +201,7 @@ body {
 
 .context-menu-item:hover {
   background: var(--accent-primary);
-  color: #000;
+  color: var(--accent-text);
 }
 
 .context-menu-item.danger:hover {
@@ -204,7 +227,7 @@ th,
 td {
   text-align: left;
   padding: 8px 12px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  border-bottom: 1px solid var(--border-subtle);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -227,9 +250,9 @@ th {
 }
 
 .data-row:hover {
-  background-color: rgba(255, 255, 255, 0.03);
+  background-color: var(--hover-bg);
 }
 
 .data-row:active {
-  background-color: rgba(138, 180, 248, 0.1);
+  background-color: var(--accent-dim);
 }

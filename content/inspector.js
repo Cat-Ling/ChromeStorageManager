@@ -101,6 +101,60 @@
                 })();
                 return true;
             }
+            else if (request.type === 'putIndexedDBItem') {
+                (async () => {
+                    try {
+                        const db = await new Promise((resolve, reject) => {
+                            const req = indexedDB.open(request.dbName);
+                            req.onsuccess = () => resolve(req.result);
+                            req.onerror = () => reject(req.error);
+                        });
+                        const tx = db.transaction(request.storeName, 'readwrite');
+                        const store = tx.objectStore(request.storeName);
+                        // Using 'put' handles both add and update.
+                        // If 'key' is provided separately, use it if store doesn't have auto-increment/keyPath issues
+                        // For KV-style (no keyPath), put(value, key) is standard.
+                        await new Promise((resolve, reject) => {
+                            const req = store.put(request.value, request.key);
+                            req.onsuccess = () => resolve();
+                            req.onerror = () => reject(req.error);
+                        });
+                        db.close();
+                        sendResponse({ success: true });
+                    } catch (e) {
+                        sendResponse({ error: e.message });
+                    }
+                })();
+                return true;
+            }
+            else if (request.type === 'createIndexedDBStore') {
+                (async () => {
+                    try {
+                        // Get current version to increment it
+                        const dbs = await indexedDB.databases();
+                        const dbInfo = dbs.find(d => d.name === request.dbName);
+                        const nextVersion = dbInfo ? (dbInfo.version + 1) : 1;
+
+                        const req = indexedDB.open(request.dbName, nextVersion);
+                        req.onupgradeneeded = (e) => {
+                            const db = e.target.result;
+                            if (!db.objectStoreNames.contains(request.storeName)) {
+                                db.createObjectStore(request.storeName);
+                            }
+                        };
+                        req.onsuccess = (e) => {
+                            e.target.result.close();
+                            sendResponse({ success: true });
+                        };
+                        req.onerror = (e) => {
+                            sendResponse({ error: e.target.error ? e.target.error.message : 'Unknown error' });
+                        };
+                    } catch (e) {
+                        sendResponse({ error: e.message });
+                    }
+                })();
+                return true;
+            }
             else if (request.type === 'getCacheList') {
                 (async () => {
                     try {
@@ -134,10 +188,37 @@
                 })();
                 return true;
             }
+            else if (request.type === 'addCacheItem') {
+                (async () => {
+                    try {
+                        const cache = await caches.open(request.cacheName);
+                        await cache.add(request.url);
+                        sendResponse({ success: true });
+                    } catch (e) {
+                        sendResponse({ error: e.message });
+                    }
+                })();
+                return true;
+            }
             else if (request.type === 'getQuota') {
                 navigator.storage.estimate().then(estimate => {
                     sendResponse({ data: estimate });
                 }).catch(e => sendResponse({ error: e.message }));
+                return true;
+            }
+            else if (request.type === 'getStorageBuckets') {
+                (async () => {
+                    try {
+                        if (navigator.storageBuckets && navigator.storageBuckets.keys) {
+                            const keys = await navigator.storageBuckets.keys();
+                            sendResponse({ data: keys });
+                        } else {
+                            sendResponse({ data: [], supported: false });
+                        }
+                    } catch (e) {
+                        sendResponse({ error: e.message });
+                    }
+                })();
                 return true;
             }
             else if (request.type === 'getFileSystem') {
@@ -166,6 +247,39 @@
                         };
                         const files = await readDir(root);
                         sendResponse({ data: files });
+                    } catch (e) {
+                        sendResponse({ error: e.message });
+                    }
+                })();
+                return true;
+            }
+            else if (request.type === 'downloadFile') {
+                (async () => {
+                    try {
+                        const root = await navigator.storage.getDirectory();
+                        const parts = request.path.split('/').filter(p => p);
+                        let handle = root;
+
+                        // Navigate to file
+                        for (let i = 0; i < parts.length - 1; i++) {
+                            handle = await handle.getDirectoryHandle(parts[i]);
+                        }
+
+                        const fileHandle = await handle.getFileHandle(parts[parts.length - 1]);
+                        const file = await fileHandle.getFile();
+
+                        // Convert to base64 for message passing
+                        // For very large files, this might be slow, but it's the most compatible way for a response
+                        const reader = new FileReader();
+                        reader.onloadend = () => {
+                            sendResponse({
+                                data: reader.result.split(',')[1],
+                                name: file.name,
+                                type: file.type
+                            });
+                        };
+                        reader.onerror = () => sendResponse({ error: 'Failed to read file' });
+                        reader.readAsDataURL(file);
                     } catch (e) {
                         sendResponse({ error: e.message });
                     }

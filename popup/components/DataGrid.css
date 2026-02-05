@@ -1,10 +1,15 @@
 /* DataGrid Styles */
 .data-grid-table {
-    width: 100%;
-    border-collapse: collapse;
+    width: min-content;
+    /* Driven by column defines, not content */
+    /* Allow growing beyond container for scrolling */
+    min-width: 100%;
+    /* Ensure it fills at least the viewport */
+    border-collapse: separate;
+    border-spacing: 0;
     font-size: 13px;
     table-layout: fixed;
-    /* Allow truncation */
+    /* Resizing relies on this */
 }
 
 .data-grid-table thead {
@@ -20,22 +25,89 @@
     color: var(--text-secondary);
     font-weight: 500;
     border-bottom: 1px solid var(--border-color);
+    border-right: 1px solid var(--border-subtle);
+    /* Vertical Divider */
     white-space: nowrap;
+    position: relative;
+    /* For resizer */
+    user-select: none;
+}
+
+.data-grid-table th:last-child {
+    border-right: none;
 }
 
 .data-grid-table td {
-    padding: 8px 12px;
+    padding: 0 12px;
     border-bottom: 1px solid var(--border-color);
+    border-right: 1px solid var(--border-subtle);
     color: var(--text-primary);
+    overflow: hidden;
+}
+
+.cell-content {
+    height: 28px;
+    line-height: 28px;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+    /* Ensure internal items like badges align well */
+    display: flex;
+    align-items: center;
+}
+
+.data-grid-table td:last-child {
+    border-right: none;
 }
 
 .data-grid-table tbody tr:hover {
     background-color: var(--bg-secondary);
 }
 
+/* Resizer Handle */
+.col-resizer {
+    position: absolute;
+    right: -4px;
+    /* Center on the 1px border. Width is 5px, so -2.5 is center. Let's do -4 for wider grab area */
+    top: 0;
+    width: 9px;
+    /* Wider grab target */
+    height: 100%;
+    cursor: col-resize;
+    user-select: none;
+    touch-action: none;
+    opacity: 0;
+    /* Hidden unless hovered */
+    transition: opacity 0.2s;
+    background: transparent;
+    /* Invisible by default */
+    z-index: 20;
+}
+
+.col-resizer::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 4px;
+    /* Center visual line */
+    width: 1px;
+    height: 100%;
+    background: var(--accent-primary);
+    display: none;
+}
+
+.data-grid-table th:hover .col-resizer {
+    opacity: 1;
+    /* Make hit area interactable */
+}
+
+/* Show visual line on hover/active */
+.col-resizer:hover::after,
+.col-resizer:active::after {
+    display: block;
+}
+
+/* Actions */
 .actions-cell {
     display: flex;
     gap: 4px;
@@ -66,4 +138,20 @@
 .edit-btn:hover {
     color: var(--accent-primary);
     background-color: var(--accent-dim);
+}
+
+/* Global Resizing State to prevent selection issues */
+body.resizing {
+    cursor: col-resize !important;
+    user-select: none !important;
+}
+
+body.resizing * {
+    user-select: none !important;
+    pointer-events: none !important;
+}
+
+body.resizing .data-grid-table,
+body.resizing .data-grid-table * {
+    pointer-events: auto !important;
 }

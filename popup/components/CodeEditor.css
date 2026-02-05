@@ -89,7 +89,7 @@
 
 .btn-primary {
     background-color: var(--accent-primary);
-    color: white;
+    color: var(--accent-text);
 }
 
 .btn-primary:hover {

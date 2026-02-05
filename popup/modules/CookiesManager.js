@@ -74,6 +74,11 @@ export class CookiesManager {
             expirationDate: cookie.expirationDate
         };
 
+        // CHIPS Support (Partitioned Cookies)
+        if (cookie.partitionKey) {
+            details.partitionKey = cookie.partitionKey;
+        }
+
         // Remove domain if it's host-only (no domain attribute)
         if (cookie.domain && !cookie.hostOnly) {
             details.domain = cookie.domain;
@@ -101,5 +106,28 @@ export class CookiesManager {
                 resolve(details);
             });
         });
+    }
+
+    /**
+     * Convert an array of cookies to Netscape format
+     */
+    toNetscape(cookies) {
+        let output = "# Netscape HTTP Cookie File\n";
+        output += "# http://curl.haxx.se/rfc/cookie_spec.html\n";
+        output += "# This is a generated file!  Do not edit.\n\n";
+
+        cookies.forEach(c => {
+            const domain = c.domain;
+            const includeSubdomains = domain.startsWith('.') ? "TRUE" : "FALSE";
+            const path = c.path || "/";
+            const secure = c.secure ? "TRUE" : "FALSE";
+            const expiry = c.expirationDate ? Math.floor(c.expirationDate) : 0;
+            const name = c.name;
+            const value = c.value;
+
+            output += `${domain}\t${includeSubdomains}\t${path}\t${secure}\t${expiry}\t${name}\t${value}\n`;
+        });
+
+        return output;
     }
 }
