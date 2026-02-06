@@ -8,9 +8,13 @@ export class DataGrid {
         this.columns = options.columns || [{ key: 'key', label: 'Key' }, { key: 'value', label: 'Value' }];
         this.onEdit = options.onEdit || (() => { });
         this.onDelete = options.onDelete || (() => { });
+        this.onUpdate = options.onUpdate || null;
+        this.onDuplicate = options.onDuplicate || null;
         this.onAdd = options.onAdd || null;
         this.extraContextItems = options.extraContextItems || []; // [{ label, action }]
         this.enableGlobalContextMenu = options.enableGlobalContextMenu !== false;
+        this.sortCol = options.defaultSortCol || null;
+        this.sortDir = options.defaultSortDir || 'asc';
 
         // Global Context Menu for container/empty space
         // Prevent duplicate listeners if container is reused
@@ -46,6 +50,27 @@ export class DataGrid {
             return;
         }
 
+        // Sorting
+        let displayData = [...data];
+        if (this.sortCol) {
+            displayData.sort((a, b) => {
+                let valA = a[this.sortCol];
+                let valB = b[this.sortCol];
+
+                // Handle nulls/undefined
+                if (valA === null || valA === undefined) valA = '';
+                if (valB === null || valB === undefined) valB = '';
+
+                // Case-insensitive string comparison
+                if (typeof valA === 'string') valA = valA.toLowerCase();
+                if (typeof valB === 'string') valB = valB.toLowerCase();
+
+                if (valA < valB) return this.sortDir === 'asc' ? -1 : 1;
+                if (valA > valB) return this.sortDir === 'asc' ? 1 : -1;
+                return 0;
+            });
+        }
+
         const table = document.createElement('table');
         table.className = 'data-grid-table';
 
@@ -55,7 +80,25 @@ export class DataGrid {
 
         this.columns.forEach((col, index) => {
             const th = document.createElement('th');
-            th.innerHTML = `<span class="header-text">${col.label}</span>`;
+            const isActive = this.sortCol === col.key;
+            const arrow = this.sortDir === 'asc' ? '▲' : '▼';
+
+            th.innerHTML = `
+                <span class="header-text">
+                    ${col.label}
+                    <span class="sort-indicator ${isActive ? 'active' : ''}">${isActive ? arrow : '▲'}</span>
+                </span>
+            `;
+
+            th.onclick = () => {
+                if (this.sortCol === col.key) {
+                    this.sortDir = this.sortDir === 'asc' ? 'desc' : 'asc';
+                } else {
+                    this.sortCol = col.key;
+                    this.sortDir = 'asc';
+                }
+                this.render(this.data);
+            };
 
             // Set initial width if provided, otherwise default to a constrained size
             th.style.width = col.width || '150px';
@@ -76,7 +119,7 @@ export class DataGrid {
         // Body
         const tbody = document.createElement('tbody');
 
-        data.forEach(item => {
+        displayData.forEach(item => {
             const tr = document.createElement('tr');
             tr.className = 'data-row'; // For hover effects
 
@@ -196,6 +239,9 @@ export class DataGrid {
         if (item) {
             ops.push({ label: 'Edit Value', action: () => this.onEdit(item) });
             ops.push({ label: 'Properties...', action: () => this.showProperties(item) });
+            if (this.onDuplicate) {
+                ops.push({ label: 'Duplicate', action: () => this.onDuplicate(item) });
+            }
             ops.push({ type: 'separator' });
             ops.push({ label: 'Copy Value', action: () => navigator.clipboard.writeText(typeof item.value === 'object' ? JSON.stringify(item.value) : String(item.value)) });
             ops.push({ label: 'Export as File...', action: () => this.exportItemValue(item) });
@@ -274,10 +320,7 @@ export class DataGrid {
         const sizeStr = totalSize > 1024 ? `${(totalSize / 1024).toFixed(2)} KB` : `${totalSize} Bytes`;
 
         // Content
-        let rows = `
-            <tr><td style="color:var(--text-secondary);">Key/Name</td><td>${item.name || item.key}</td></tr>
-            <tr><td style="color:var(--text-secondary);">Size</td><td>${sizeStr}</td></tr>
-        `;
+        let rows = '';
 
         if (item.domain !== undefined) {
             const domainInputId = 'prop-domain-input';
@@ -344,14 +387,35 @@ export class DataGrid {
 
         modal.innerHTML = `
             <div style="padding: 16px; border-bottom: 1px solid var(--border-color); font-weight: 600;">Item Properties</div>
-            <div style="padding: 16px;">
-                <table style="width:100%; border-collapse: separate; border-spacing: 0 8px; font-size:13px;">
-                    ${rows}
+            <div style="padding: 16px; overflow: hidden;">
+                <table style="width:100%; border-collapse: separate; border-spacing: 0 8px; font-size:13px; table-layout: fixed;">
+                    <colgroup>
+                        <col style="width: 100px;">
+                        <col style="width: auto;">
+                    </colgroup>
+                    <style>
+                        .prop-val-cell {
+                            overflow: hidden;
+                            text-overflow: ellipsis;
+                            white-space: nowrap;
+                        }
+                    </style>
+                    <tbody>
+                        <tr>
+                            <td style="color:var(--text-secondary);">Key/Name</td>
+                            <td>
+                                <input id="prop-name-input" type="text" value="${(item.name || item.key).replace(/"/g, '&quot;')}" 
+                                    style="background:var(--bg-main); border:1px solid var(--border-color); color:var(--text-primary); padding:4px; border-radius:4px; width:100%;">
+                            </td>
+                        </tr>
+                        <tr><td style="color:var(--text-secondary);">Size</td><td>${sizeStr}</td></tr>
+                        ${rows}
+                    </tbody>
                 </table>
             </div>
             <div style="padding: 16px; border-top: 1px solid var(--border-color); display: flex; justify-content: flex-end; gap: 8px;">
                 <button id="prop-cancel" style="padding: 6px 12px; border: 1px solid var(--border-color); background: transparent; color: var(--text-primary); border-radius: 4px; cursor: pointer;">Cancel</button>
-                ${dateInputId ? `<button id="prop-save" style="padding: 6px 12px; border: 1px solid transparent; background: var(--accent-primary); color: #fff; border-radius: 4px; cursor: pointer;">Save</button>` : ''}
+                <button id="prop-save" style="display: none; padding: 6px 12px; border: 1px solid transparent; background: var(--accent-primary); color: #fff; border-radius: 4px; cursor: pointer;">Save</button>
             </div>
         `;
 
@@ -362,10 +426,24 @@ export class DataGrid {
         overlay.querySelector('#prop-cancel').onclick = () => overlay.remove();
 
         const saveBtn = overlay.querySelector('#prop-save');
-        if (saveBtn) {
+        if (saveBtn && this.onUpdate) {
+            const showSave = () => { saveBtn.style.display = 'block'; };
+            overlay.querySelectorAll('input').forEach(input => {
+                input.oninput = showSave;
+                input.onchange = showSave;
+            });
+
             saveBtn.onclick = () => {
                 let newItem = { ...item };
                 let valid = true;
+
+                // Handle Name/Key change
+                const nameInput = overlay.querySelector('#prop-name-input');
+                if (nameInput) {
+                    const newName = nameInput.value;
+                    if (item.name !== undefined) newItem.name = newName;
+                    else if (item.key !== undefined) newItem.key = newName;
+                }
 
                 // Handle Date
                 if (dateInputId) {
@@ -393,7 +471,7 @@ export class DataGrid {
                 }
 
                 if (valid) {
-                    this.onUpdate(newItem);
+                    this.onUpdate(newItem, item);
                     overlay.remove();
                 }
             };

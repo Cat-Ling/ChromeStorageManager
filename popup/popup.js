@@ -115,7 +115,7 @@ function showNewItemModal(title, fields, onSave) {
     });
 
     modal.innerHTML = `
-        <div style="padding: 16px; border-bottom: 1px solid var(--border-color); font-weight: 600;">${title}</div>
+        <div style="padding: 16px; border-bottom: 1px solid var(--border-color); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${title}</div>
         <div style="padding: 16px;">
             ${fieldHtml}
         </div>
@@ -520,13 +520,22 @@ async function readCache(container, cacheName) {
     }
 }
 
+function generateDuplicateName(currentName, existingNames) {
+    let n = 1;
+    let candidate = `${currentName} (${n})`;
+    while (existingNames.has(candidate)) {
+        n++;
+        candidate = `${currentName} (${n})`;
+    }
+    return candidate;
+}
+
 async function renderCookies(container, url) {
     const cookies = await cookiesManager.getAll();
-    // Sort cookies alphabetically by Name to prevent jumping after edits
-    cookies.sort((a, b) => a.name.localeCompare(b.name));
-
+    const cookieNames = new Set(cookies.map(c => c.name));
 
     const grid = new DataGrid(container, {
+        defaultSortCol: 'name',
         columns: [
             { key: 'name', label: 'Name', width: '120px' },
             {
@@ -592,6 +601,25 @@ async function renderCookies(container, url) {
             await cookiesManager.delete(item);
             loadView('cookies'); // reload
         },
+        onDuplicate: async (item) => {
+            try {
+                const newName = generateDuplicateName(item.name, cookieNames);
+                const newCookie = {
+                    ...item,
+                    name: newName,
+                    url: `http${item.secure ? 's' : ''}://${item.domain.startsWith('.') ? item.domain.substring(1) : item.domain}${item.path}`
+                };
+                // expirationDate might be null for session cookies, set it explicitly if it exists
+                if (item.expirationDate) newCookie.expirationDate = item.expirationDate;
+                else delete newCookie.expirationDate;
+
+                await cookiesManager.set(newCookie);
+                loadView('cookies');
+            } catch (e) {
+                console.error('Failed to duplicate cookie:', e);
+                alert(`Duplicate failed: ${e.message}`);
+            }
+        },
         extraContextItems: [
             {
                 label: 'Export All (Netscape)',
@@ -624,23 +652,27 @@ async function renderCookies(container, url) {
                 }
             }
         ],
-        onUpdate: async (item) => {
-            // ... (keep onUpdate logic as is)
+        onUpdate: async (newItem, oldItem) => {
             try {
-                let cookieUrl = `http${item.secure ? 's' : ''}://${item.domain.startsWith('.') ? item.domain.substring(1) : item.domain}${item.path}`;
+                // If name changed, we must delete the old one first
+                if (newItem.name !== oldItem.name) {
+                    await cookiesManager.delete(oldItem);
+                }
+
+                let cookieUrl = `http${newItem.secure ? 's' : ''}://${newItem.domain.startsWith('.') ? newItem.domain.substring(1) : newItem.domain}${newItem.path}`;
                 const newCookie = {
                     url: cookieUrl,
-                    name: item.name,
-                    value: item.value,
-                    domain: item.domain,
-                    path: item.path,
-                    secure: item.secure,
-                    httpOnly: item.httpOnly,
-                    sameSite: item.sameSite,
-                    storeId: item.storeId,
-                    expirationDate: item.expirationDate
+                    name: newItem.name,
+                    value: newItem.value,
+                    domain: newItem.domain,
+                    path: newItem.path,
+                    secure: newItem.secure,
+                    httpOnly: newItem.httpOnly,
+                    sameSite: newItem.sameSite,
+                    storeId: newItem.storeId,
+                    expirationDate: newItem.expirationDate
                 };
-                if (!item.expirationDate) delete newCookie.expirationDate;
+                if (!newItem.expirationDate) delete newCookie.expirationDate;
                 await cookiesManager.set(newCookie);
                 loadView('cookies');
             } catch (e) {
@@ -700,6 +732,7 @@ async function renderPageStorage(container, tabId, manager, type) {
         const items = await manager.getAll();
 
         const grid = new DataGrid(container, {
+            defaultSortCol: 'key',
             columns: [
                 { key: 'key', label: 'Key', width: '100px' },
                 {
@@ -763,6 +796,40 @@ async function renderPageStorage(container, tabId, manager, type) {
                 await manager.delete(item);
                 const activeNav = document.querySelector('.nav-item.active');
                 if (activeNav) loadView(activeNav.dataset.target);
+            },
+            onDuplicate: async (item) => {
+                try {
+                    const keys = new Set(items.map(i => i.key));
+                    const newKey = generateDuplicateName(item.key, keys);
+                    await chrome.tabs.sendMessage(tabId, {
+                        type: type === 'localStorage' ? 'setLocalStorage' : 'setSessionStorage',
+                        key: newKey,
+                        value: item.value
+                    });
+                    loadView(type === 'localStorage' ? 'local-storage' : 'session-storage');
+                } catch (e) {
+                    console.error('Failed to duplicate storage item:', e);
+                    alert(`Duplicate failed: ${e.message}`);
+                }
+            },
+            onUpdate: async (newItem, oldItem) => {
+                try {
+                    // If key changed, delete old one
+                    if (newItem.key !== oldItem.key) {
+                        await manager.delete(oldItem);
+                    }
+
+                    await chrome.tabs.sendMessage(tabId, {
+                        type: type === 'localStorage' ? 'setLocalStorage' : 'setSessionStorage',
+                        key: newItem.key,
+                        value: newItem.value
+                    });
+
+                    loadView(type === 'localStorage' ? 'local-storage' : 'session-storage');
+                } catch (e) {
+                    console.error('Failed to update storage item:', e);
+                    alert(`Update failed: ${e.message}`);
+                }
             },
             enableGlobalContextMenu: false
         });
@@ -890,6 +957,7 @@ async function renderIndexedDB(container, tabId) {
                             gridContainer.innerHTML = '';
 
                             const grid = new DataGrid(gridContainer, {
+                                defaultSortCol: 'key',
                                 columns: [
                                     { key: 'key', label: 'Key', width: '150px' },
                                     {
@@ -925,6 +993,34 @@ async function renderIndexedDB(container, tabId) {
                                             alert('Save Failed: ' + e.message);
                                         }
                                     }, item.key, item.value);
+                                },
+                                onDelete: async (item) => {
+                                    await indexedDBManager.deleteItem(dbName, sName, item.key);
+                                    renderIndexedDBStore(dbName, sName);
+                                },
+                                onDuplicate: async (item) => {
+                                    try {
+                                        const keys = new Set(data.map(i => i.key));
+                                        const newKey = generateDuplicateName(item.key, keys);
+                                        await indexedDBManager.putItem(dbName, sName, newKey, item.value);
+                                        renderIndexedDBStore(dbName, sName);
+                                    } catch (e) {
+                                        console.error('Failed to duplicate IndexedDB entry:', e);
+                                        alert(`Duplicate failed: ${e.message}`);
+                                    }
+                                },
+                                onUpdate: async (newItem, oldItem) => {
+                                    try {
+                                        // If key changed, delete old
+                                        if (newItem.key !== oldItem.key) {
+                                            await indexedDBManager.deleteItem(dbName, sName, oldItem.key);
+                                        }
+                                        await indexedDBManager.putItem(dbName, sName, newItem.key, newItem.value);
+                                        renderIndexedDBStore(dbName, sName);
+                                    } catch (e) {
+                                        console.error('Failed to update IndexedDB entry:', e);
+                                        alert(`Update failed: ${e.message}`);
+                                    }
                                 }
                             });
                             grid.render(data);
